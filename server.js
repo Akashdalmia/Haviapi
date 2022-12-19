@@ -4,23 +4,24 @@ const app = express();
 const ConnectDB = require("./db/Connection.js");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+
 const { User } = require("./db/User");
 const { Registers } = require("./db/Register");
 const { Password } = require("./db/Password");
 const { Code } = require("./db/Code");
 const { CodeNonUser } = require("./db/CodeNonUser");
 const { ElementAssignment } = require("./db/ElementAssignment");
-const { ElementProduct } = require("./db/ElementProduct");
-const { ElementCreations } = require("./db/ElementCreations");
+const { ElementProducts } = require("./db/Elementproducts");
 const { Assignment } = require("./db/Assignment");
 const { Welcomepage } = require("./db/Welcomepage");
 const { Challenge } = require("./db/Challenge");
 const { sendEmail } = require("./Email");
+
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const { CheckAssignment } = require("./db/CheckedAssignment.js");
 app.use(cookieParser());
-
 ConnectDB();
 app.use(cors());
 app.use(bodyParser.json());
@@ -62,7 +63,7 @@ app.post("/register_data", async (req, res) => {
   if (user) {
     return res
       .status(400)
-      .send({ success: false, message: "Email all ready in use" });
+      .send({ success: false, message: "Email already in use" });
   }
   var register = new Registers({
     email: req.body.email,
@@ -71,9 +72,15 @@ app.post("/register_data", async (req, res) => {
     marks: "0",
   });
   const data = await register.save();
-  //console.log("Data", data);
+  const tokens = jwt.sign(
+    { _id: data._id.toString() },
+    process.env.SECRET_KEY,
+    { expiresIn: "7200s" }
+  );
+  console.log("Data", data._id, tokens);
+
   if (data) {
-    return res.status(200).json({ success: true, data: data });
+    return res.status(200).json({ success: true, data: data, token: tokens });
   } else {
     return res
       .status(400)
@@ -182,11 +189,13 @@ app.put("/update_profile_details/:id", async (req, res) => {
   const data = new Registers({
     _id: req.body.id,
     name: req.body.name,
+    parentsname: req.body.parentsname,
+    contact: req.body.contact,
     username: req.body.username,
     shortdesc: req.body.shortdesc,
     image: req.body.image,
   });
-  //console.log(data);
+  console.log(data);
   Registers.updateOne({ _id: req.body.id }, data)
     .then(() => {
       res.status(200).json({ success: true, data: data });
@@ -846,8 +855,7 @@ app.get(`/all_project_data`, async (req, res) => {
 
 app.get(`/all_project_nonusers_data`, async (req, res) => {
   const project = await CodeNonUser.find();
-  // const code = await Code.find({});
-  // const merge = projects.concat(code);
+
   const projects = project.sort(function (a, b) {
     return new Date(b.time) - new Date(a.time);
   });
@@ -1194,9 +1202,15 @@ app.get(`/get_data`, async (req, res) => {
 });
 
 app.get(`/get_element_data`, async (req, res) => {
-  // const data = await User.find().sort({ time: -1 }).limit();
-  const data = await ElementAssignment.find();
+  const project = await ElementAssignment.find();
+  // const data = project.sort(function (a, b) {
+  //   return parseFloat(a.sequence) - parseFloat(b.sequence);
+  // });
   //console.log(data);
+
+  const data = project.sort(function (a, b) {
+    return new Date(a.time) - new Date(b.time);
+  });
   if (data) {
     return res.status(200).json({ success: true, data: data });
   }
@@ -1499,6 +1513,7 @@ app.get(`/get_display_welcome`, async (req, res) => {
       module.push(challenges[i]);
     }
   }
+
   console.log(module, challenge);
   if ((module, challenge)) {
     return res
@@ -1516,9 +1531,9 @@ app.get(`/get_display_welcome`, async (req, res) => {
 
 app.post("/save_element_product", async (req, res) => {
   const date_ob = new Date().toLocaleString();
-  var user = new ElementProduct({
+  var user = new ElementProducts({
     sno: req.body.sno,
-    elementproduct: req.body.elementproduct,
+    elementProduct: req.body.elementProduct,
     time: date_ob,
   });
   //console.log(user);
@@ -1531,7 +1546,7 @@ app.post("/save_element_product", async (req, res) => {
 
 app.get(`/get_element_product`, async (req, res) => {
   // const data = await User.find().sort({ time: -1 }).limit();
-  const data = await ElementProduct.find().sort({ time: -1 });
+  const data = await ElementProducts.find().sort({ time: -1 });
   //console.log(data);
   if (data) {
     return res.status(200).json({ success: true, data: data });
@@ -1540,13 +1555,13 @@ app.get(`/get_element_product`, async (req, res) => {
 });
 
 app.put("/update_element_product", (req, res) => {
-  const data = new ElementProduct({
+  const data = new ElementProducts({
     _id: req.body._id,
     sno: req.body.sno,
-    elementproduct: req.body.elementproduct,
+    elementProduct: req.body.elementProduct,
   });
   console.log(data);
-  ElementProduct.updateOne({ _id: req.body._id }, data)
+  ElementProducts.updateOne({ _id: req.body._id }, data)
     .then(() => {
       res.status(200).json({ success: true, data: data });
     })
@@ -1556,7 +1571,7 @@ app.put("/update_element_product", (req, res) => {
 });
 
 app.delete(`/delete_element_product`, async (req, res) => {
-  const data = await ElementProduct.findByIdAndDelete(req.body._id);
+  const data = await ElementProducts.findByIdAndDelete(req.body._id);
   if (data) {
     console.log("project");
     return res.status(200).json({ success: true, data: data });
@@ -1568,7 +1583,7 @@ app.delete(`/delete_element_product`, async (req, res) => {
 app.delete(`/bulkdelete_elemet_product`, async (req, res) => {
   console.log("bb", req.body.id);
   const data = req.body.id;
-  ElementProduct.deleteMany(
+  ElementProducts.deleteMany(
     {
       _id: {
         $in: req.body.id,
@@ -1590,7 +1605,7 @@ app.delete(`/bulkdelete_elemet_product`, async (req, res) => {
 
 app.post("/save_element_creations", async (req, res) => {
   const date_ob = new Date().toLocaleString();
-  var user = new ElementCreations({
+  var user = new ElementAssignment({
     title: req.body.title,
     url: req.body.url,
     products: req.body.products,
@@ -1604,9 +1619,47 @@ app.post("/save_element_creations", async (req, res) => {
   return res.status(400).json({ success: false, data: data });
 });
 
+app.post("/save_element_creations1", async (req, res) => {
+  const date_ob = new Date().toLocaleString();
+  var user = new ElementAssignment({
+    title: req.body.title,
+    url: req.body.url,
+    products: req.body.products,
+    time: date_ob,
+    sequence: req.body.sequence,
+  });
+  //console.log(user);
+  const data = await user.save();
+  if (data) {
+    return res.status(200).json({ success: true, data: data });
+  }
+  return res.status(400).json({ success: false, data: data });
+});
+
 app.get(`/get_element_creations`, async (req, res) => {
-  const data = await ElementCreations.find().sort({ time: -1 });
-  const product = await ElementProduct.find();
+  const project = await ElementAssignment.find();
+  const data = project.sort(function (a, b) {
+    return new Date(b.time) - new Date(a.time);
+  });
+  const product = await ElementProducts.find();
+  //console.log(data);
+  if ((data, product)) {
+    return res
+      .status(200)
+      .json({ success: true, data: data, product: product });
+  }
+  return res.status(400).json({ success: false, data: data, product: product });
+});
+
+app.get(`/get_element_creations1`, async (req, res) => {
+  const project = await ElementAssignment.find();
+  // const data = project.sort(function (a, b) {
+  //   return new Date(b.time) - new Date(a.time);
+  // });
+  const data = project.sort(function (a, b) {
+    return parseFloat(a.sequence) - parseFloat(b.sequence);
+  });
+  const product = await ElementProducts.find();
   //console.log(data);
   if ((data, product)) {
     return res
@@ -1617,14 +1670,31 @@ app.get(`/get_element_creations`, async (req, res) => {
 });
 
 app.put("/update_element_creations", (req, res) => {
-  const data = new ElementCreations({
+  const data = new ElementAssignment({
     _id: req.body._id,
     title: req.body.title,
     url: req.body.url,
     products: req.body.products,
   });
   console.log(data);
-  ElementCreations.updateOne({ _id: req.body._id }, data)
+  ElementAssignment.updateOne({ _id: req.body._id }, data)
+    .then(() => {
+      res.status(200).json({ success: true, data: data });
+    })
+    .catch((error) => {
+      res.status(400).json({ success: false, data: data });
+    });
+});
+app.put("/update_element_creations1", (req, res) => {
+  const data = new ElementAssignment({
+    _id: req.body._id,
+    title: req.body.title,
+    url: req.body.url,
+    products: req.body.products,
+    sequence: req.body.sequence,
+  });
+  console.log(data);
+  ElementAssignment.updateOne({ _id: req.body._id }, data)
     .then(() => {
       res.status(200).json({ success: true, data: data });
     })
@@ -1634,7 +1704,7 @@ app.put("/update_element_creations", (req, res) => {
 });
 
 app.delete(`/delete_element_creations`, async (req, res) => {
-  const data = await ElementCreations.findByIdAndDelete(req.body._id);
+  const data = await ElementAssignment.findByIdAndDelete(req.body._id);
   if (data) {
     console.log("project");
     return res.status(200).json({ success: true, data: data });
@@ -1646,7 +1716,7 @@ app.delete(`/delete_element_creations`, async (req, res) => {
 app.delete(`/bulkdelete_elemet_creations`, async (req, res) => {
   console.log("bb", req.body.id);
   const data = req.body.id;
-  ElementCreations.deleteMany(
+  ElementAssignment.deleteMany(
     {
       _id: {
         $in: req.body.id,
@@ -1667,7 +1737,7 @@ app.delete(`/bulkdelete_elemet_creations`, async (req, res) => {
 //================ Stat User side elemenets ==============
 
 app.get(`/get_product_list`, async (req, res) => {
-  const product = await ElementProduct.find();
+  const product = await ElementProducts.find();
   if (product) {
     return res.status(200).json({ success: true, data: product });
   }
@@ -1676,7 +1746,7 @@ app.get(`/get_product_list`, async (req, res) => {
 
 app.post(`/get_elementcreation_list`, async (req, res) => {
   console.log("body data", req.body.products);
-  const product = await ElementCreations.find();
+  const product = await ElementAssignment.find();
   var filterdata = [];
   for (var i = 0; i < product.length; i++) {
     if (product[i].products === req.body.products) {
@@ -1690,7 +1760,138 @@ app.post(`/get_elementcreation_list`, async (req, res) => {
   return res.status(400).json({ success: false, data: filterdata });
 });
 
+app.post(`/get_elementcreation_list1`, async (req, res) => {
+  console.log("body data", req.body.products);
+  const product = await ElementAssignment.find();
+  var filterdata = [];
+  for (var i = 0; i < product.length; i++) {
+    if (product[i].products === req.body.products) {
+      filterdata.push(product[i]);
+    }
+  }
+  const filter = filterdata.sort(function (a, b) {
+    return parseFloat(a.sequence) - parseFloat(b.sequence);
+  });
+
+  console.log(product, "filtered data ", filter);
+  if (product) {
+    return res.status(200).json({ success: true, data: filter });
+  }
+  return res.status(400).json({ success: false, data: filter });
+});
+
 //================ End  User side elemenets ==============
+
+//==================== start profile visibility ==========
+
+app.put("/update_profile_visibility", async (req, res) => {
+  const data = new Registers({
+    _id: req.body.id,
+    profilevisibility: req.body.profilevisibility,
+  });
+  console.log("check visibility", data);
+  Registers.updateOne({ _id: req.body.id }, data)
+    .then(() => {
+      res.status(200).json({ success: true, data: data });
+    })
+    .catch((error) => {
+      res.status(400).json({ success: false, data: data });
+    });
+});
+
+app.post(`/profile_get_datavisibility`, async (req, res) => {
+  //console.log("decode", req.body.decoded)
+  const data = await Registers.find({ _id: req.body.decoded });
+  const Project = await Assignment.find({ id: req.body.decoded });
+  const code = await Code.find({ id: req.body.decoded });
+
+  const merge = Project.concat(code);
+  const sort = merge.sort(function (a, b) {
+    return new Date(b.time) - new Date(a.time);
+  });
+  // console.log(sort);
+  if ((data, sort)) {
+    return res.status(200).json({ success: true, data: data, code: sort });
+  }
+  return res.status(400).json({ success: false, data: data, code: sort });
+});
+
+app.get(`/all_profile_datasss`, async (req, res) => {
+  const user = await Registers.find();
+  const project = await Assignment.find({ status: "1" });
+  const code = await Code.find({ status: "1" });
+  const merge = project.concat(code);
+  filterArr = [];
+
+  var filterdata = [];
+  var usersdata = [];
+  for (var i = 0; i < user.length; i++) {
+    if (user[i].profilevisibility == "true") {
+      filterdata.push(user[i]);
+    } else {
+      usersdata.push(user[i]);
+    }
+  }
+  usersdata.map((item) => {
+    if (merge.find((merge) => merge.id == item._id)) {
+      filterArr.push(item);
+    }
+  });
+  const filter = filterArr.sort(function (a, b) {
+    return parseFloat(a.marks) - parseFloat(b.marks);
+  });
+  const reversedata = filter.reverse();
+  if (reversedata) {
+    return res.status(200).json({ success: true, data: reversedata });
+  }
+  return res.status(400).json({ success: false, data: reversedata });
+});
+
+app.post(`/profile_datass`, async (req, res) => {
+  const data = await Registers.find({ username: req.body.decoded });
+  if (data[0].profilevisibility == "true") {
+    const profilevisibility = "This profile is private.";
+    if (profilevisibility) {
+      return res.status(200).json({
+        success: true,
+        profile: profilevisibility,
+      });
+    }
+    return res
+      .status(400)
+      .json({ success: false, data: data, profile: profilevisibility });
+  } else {
+    const assignmentid = data[0]._id;
+    const Project = await Assignment.find({ id: assignmentid });
+    const code = await Code.find({ id: assignmentid });
+    let publishcode = [];
+    let publishproject = [];
+    for (let i = 0; i < Project.length; i++) {
+      if (Project[i].status === "1") {
+        publishproject.push(Project[i]);
+      }
+    }
+    for (let i = 0; i < code.length; i++) {
+      if (code[i].status === "1") {
+        publishcode.push(code[i]);
+      }
+    }
+    const combine = publishproject.concat(publishcode);
+    const filter = combine.sort(function (a, b) {
+      return new Date(b.time) - new Date(a.time);
+    });
+    if ((data, filter)) {
+      return res
+        .status(200)
+        .json({ success: true, data: data, Project: filter });
+    }
+    return res
+      .status(400)
+      .json({ success: false, data: data, Project: filter });
+  }
+});
+
+//==================== End profile visibility ==========
 
 app.use(express.json({ extended: false }));
 app.get(`/`, async (req, res) => {
@@ -1701,78 +1902,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`your application is running in ${PORT}`);
 });
-
-// app.post("/save_token_id", async (req, res) => {
-//   const date_current = new Date().toLocaleString();
-//   console.log("save Token successfuly", req.body);
-//   var user = new Tokenid({
-//     id: req.body.id,
-//     token: req.body.token,
-//     time: date_current,
-//   });
-//   console.log(user);
-//   const data = await user.save();
-//   if (data) {
-//     return res.status(200).json({ success: true, data: data });
-//   }
-//   return res.status(400).json({ success: false, data: data });
-// });
-
-// const Profileimage = await Profile.find({ id:  req.body.decoded  })
-//     const lastdata =Profileimage[Profileimage.length -1]
-//     const Profiles = new Array(lastdata)
-//console.log("lastdataprofile",Profiles)
-
-// user.forEach(item => {
-//     if (project.findIndex (obj => obj.id === item._id) !== -1){
-//     var  data = new Array(item);
-//     console.log("data",data);
-//   }
-//   })
-
-// app.post('/update_profile_data',async(req,res)=>{
-//     const date_ob = new Date().toLocaleString();
-//     console.log('Update Profile data',req.body)
-//     console.log(req.body.shortdesc)
-//     console.log(req.body.image)
-//     var user = new Profile({
-//         id:req.body.id,
-//         shortdesc:req.body.shortdesc,
-//         image:req.body.image,
-//         time:date_ob,
-//     })
-//     console.log(user);
-//     const data = await user.save();
-//     if(data){
-//         return res.status(200).json({'success':true,'data':data})
-//     }
-//     return res.status(400).json({'success':false,'data':data})
-// });
-
-// app.post('/login_data',async(req,res)=>{
-//     // const {error} =validate(req.body)
-//     // if (error) return res.status(400).send(error.details[0].message);
-//     const user = await Registers.findOne({ email: req.body.email  })
-//     console.log("valid",user)
-//      if (!user) {
-//         return res.status(400).send({ 'success': false, 'message': "User doesn't exist" })
-//     }
-//     const validPassword =await bcrypt.compare(req.body.password,user.password);
-//     if (!user) {
-//         return res.status(400).send({ 'success': false, 'message': "Invalid email & Password" })
-//     }
-//     //const token = user.generateAuthToken();
-//     res.status(200).send({ 'success': true, 'message': 'User Authenticated' ,/*'data': token*/ })
-// });
-
-// How to add same data to whole databse
-
-// const updateddata = Assignment.updateMany(
-//   {  },
-//   { status: "1" },
-//   { multi: true },
-//   function (err, numberAffected) {
-//     console.log(err)
-//   }
-// );
-// console.log(updateddata);
